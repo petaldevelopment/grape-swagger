@@ -18,32 +18,71 @@ module Grape
 
         @combined_routes = {}
         routes.each do |route|
-          route_path = route.route_path
-          route_match = route_path.split(/^.*?#{route.route_prefix.to_s}/).last
-          next unless route_match
-          route_match = route_match.match('\/([\w|-]*?)[\.\/\(]') || route_match.match('\/([\w|-]*)$')
-          next unless route_match
-          resource = route_match.captures.first
-          next if resource.empty?
-          resource.downcase!
+          resource = get_resource_from_route(route)
+          next unless resource
           @combined_routes[resource] ||= []
           next if documentation_class.hide_documentation_path && route.route_path.include?(documentation_class.mount_path)
           @combined_routes[resource] << route
         end
 
         @combined_namespaces = {}
-        combine_namespaces(self)
-
         @combined_namespace_routes = {}
         @combined_namespace_identifiers = {}
-        combine_namespace_routes(@combined_namespaces)
 
-        exclusive_route_keys = @combined_routes.keys - @combined_namespaces.keys
-        exclusive_route_keys.each { |key| @combined_namespace_routes[key] = @combined_routes[key] }
+        combine_namespaces_routes_identifiers(self)
+
         documentation_class
       end
 
       private
+
+      def enable_documentation_cascade
+        self::VERSIONNED_APIS.each { |versionned_api| augment_cascaded_routes(versionned_api, routes) }
+      end
+
+      def augment_cascaded_routes(target, base_routes)
+        @combined_routes = {}
+        base_routes.each do |route|
+          route_version = route.instance_variable_get(:@options).version
+          next unless route_version
+          supported_versions = route.instance_variable_get(:@options).version.split('|')
+          next unless supported_versions.include? target::VERSION
+          resource = get_resource_from_route(route)
+          next unless resource
+          @combined_routes[resource] ||= []
+          @combined_routes[resource] << route
+        end
+
+        @combined_namespaces = {}
+        @combined_namespace_routes = {}
+        @combined_namespace_identifiers = {}
+
+        combine_namespaces_routes_identifiers(target)
+
+        target.instance_variable_set(:@combined_namespaces, @combined_namespaces)
+        target.instance_variable_set(:@combined_namespace_identifiers, @combined_namespace_identifiers)
+        target.instance_variable_set(:@combined_routes, @combined_routes)
+        target.instance_variable_set(:@combined_namespace_routes, @combined_namespace_routes)
+      end
+
+      def get_resource_from_route(route)
+        route_path = route.route_path
+        route_match = route_path.split(/^.*?#{route.route_prefix.to_s}/).last
+        return false unless route_match
+        route_match = route_match.match('\/([\w|-]*?)[\.\/\(]') || route_match.match('\/([\w|-]*)$')
+        return false unless route_match
+        resource = route_match.captures.first
+        return false if resource.empty?
+        resource.downcase!
+        resource
+      end
+
+      def combine_namespaces_routes_identifiers(target)
+        combine_namespaces(target)
+        combine_namespace_routes(@combined_namespaces)
+        exclusive_route_keys = @combined_routes.keys - @combined_namespaces.keys
+        exclusive_route_keys.each { |key| @combined_namespace_routes[key] = @combined_routes[key] }
+      end
 
       def combine_namespaces(app)
         app.endpoints.each do |endpoint|
