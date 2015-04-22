@@ -42,7 +42,9 @@ module Grape
 
       def augment_cascaded_routes(target, base_routes)
         @combined_routes = {}
-        base_routes.each do |route|
+
+        (target.routes + base_routes).uniq.each do |route|
+          next if route_already_included_in_target(target, route)
           route_version = route.instance_variable_get(:@options).version
           next unless route_version
           supported_versions = route.instance_variable_get(:@options).version.split('|')
@@ -63,6 +65,14 @@ module Grape
         target.instance_variable_set(:@combined_namespace_identifiers, @combined_namespace_identifiers)
         target.instance_variable_set(:@combined_routes, @combined_routes)
         target.instance_variable_set(:@combined_namespace_routes, @combined_namespace_routes)
+      end
+
+      def route_already_included_in_target(target, route)
+        target.routes.any? do |target_route|
+          target_route.instance_variable_get(:@options).path == route.instance_variable_get(:@options).path &&
+              target_route.instance_variable_get(:@options)[:method] == route.instance_variable_get(:@options)[:method] &&
+              target_route.instance_variable_get(:@options).version != route.instance_variable_get(:@options).version
+        end
       end
 
       def get_resource_from_route(route)
